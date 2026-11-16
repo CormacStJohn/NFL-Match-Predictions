@@ -37,9 +37,9 @@ def create_importance_df() -> pl.DataFrame:
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
     train_data = cleaned_rosters.slice(0, 1300)
     test_data = cleaned_rosters.slice(1300, 90)
-    device = "cuda"
+    device = model.DEVICE
 
-    trained_model, _ = model.train_model(train_data)
+    trained_model, _ = model.train_model(train_data, device=device)
 
     x = torch.as_tensor(
         test_data.select(model.TRAINING_FEATURES).to_numpy().astype(np.float32),

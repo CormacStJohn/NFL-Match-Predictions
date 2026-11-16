@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 
-
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TRAINING_SEASONS = [x for x in range(2020, 2027)]
 TRAINING_FEATURES = ['week', 'location', 'away_rest', 'home_rest',
                      'home_WR_0', 'home_WR_1', 'home_DB_0', 'home_DB_1',

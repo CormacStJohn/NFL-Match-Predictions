@@ -40,10 +40,10 @@ def create_predictions_df() -> pl.DataFrame:
     train_data = cleaned_rosters.slice(0, 1300)
     test_data = cleaned_rosters.slice(1300, 90)
 
-    trained_model, _ = model.train_model(train_data)
+    trained_model, _ = model.train_model(train_data, device=model.DEVICE)
 
     test = torch.from_numpy(test_data.select(model.TRAINING_FEATURES)
-                            .to_numpy().astype(np.float32, copy=False)).to("cuda")
+                            .to_numpy().astype(np.float32, copy=False))
     with torch.inference_mode():
         values = trained_model(test).cpu().numpy()
 
