@@ -8,13 +8,10 @@ and fantasy rankings
 """
 
 
-import nflreadpy as nfl
 import polars as pl
 import numpy as np
 import torch
-import data_cleaning
-import schedule_formatting
-import sklearn as skl
+from torch import nn
 
 
 TRAINING_SEASONS = [x for x in range(2020, 2027)]
@@ -31,22 +28,100 @@ TRAINING_FEATURES = ['week', 'location', 'away_rest', 'home_rest',
 TRAINING_LABELS = ['away_score', 'home_score', 'result', 'total']
 
 
-# A list of abbreviations for positions on a football team.
-POSITIONS: list[str] = ["WR", "DB", "DL", "TE", "K", "LB", "RB", "QB"]
+class NFLGamePredictor(nn.Module):
+    """Predict game scores and derived betting metrics from team features."""
+
+    def __init__(self, feature_mean: torch.Tensor, feature_scale: torch.Tensor,
+                 target_mean: torch.Tensor, target_scale: torch.Tensor) -> None:
+        super().__init__()
+        self.register_buffer("feature_mean", feature_mean)
+        self.register_buffer("feature_scale", feature_scale)
+        self.register_buffer("target_mean", target_mean)
+        self.register_buffer("target_scale", target_scale)
+        self.network = nn.Sequential(
+            nn.Linear(len(TRAINING_FEATURES), 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, len(TRAINING_LABELS)),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        normalized_features = (features - self.feature_mean) / self.feature_scale
+        normalized_predictions = self.network(normalized_features)
+        return normalized_predictions * self.target_scale + self.target_mean
 
 
-# A dictionary consisting of abbreviations for positions, as 
-# well as the number of players on the field that have that
-# position at a given time.
-POSITION_AMOUNTS: dict[str, int] = {"WR": 2, "OL": 5, "DB": 4, "DL": 4,
-                                    "TE": 1, "K": 1, "LB": 3, "LS": 1,
-                                    "RB": 2, "P": 1, "QB": 1}
+def train_model(data: pl.DataFrame, epochs: int = 100, batch_size: int = 32,
+                learning_rate: float = 0.001,
+                seed: int = 0,
+                device: str | torch.device = "cuda"
+                ) -> tuple[NFLGamePredictor, list[float]]:
+    """Train on the requested device and return the model and epoch losses."""
+    if epochs <= 0:
+        raise ValueError("epochs must be positive")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if learning_rate <= 0:
+        raise ValueError("learning_rate must be positive")
 
+    device = torch.device(device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA training was requested, but CUDA is unavailable. "
+            "Install a CUDA-enabled PyTorch build and check your GPU drivers.")
 
-# A DataFrame of match schedules for the seasons of interest
-SCHEDULES = data_cleaning.make_schedules(TRAINING_SEASONS)
+    required_columns = TRAINING_FEATURES + TRAINING_LABELS
+    missing_columns = [column for column in required_columns
+                       if column not in data.columns]
+    if missing_columns:
+        raise ValueError(f"Training data is missing columns: {missing_columns}")
+    if data.is_empty():
+        raise ValueError("Training data must contain at least one row")
 
+    feature_values = data.select(TRAINING_FEATURES).to_numpy().astype(
+        np.float32, copy=False)
+    target_values = data.select(TRAINING_LABELS).to_numpy().astype(
+        np.float32, copy=False)
+    if not np.isfinite(feature_values).all() or not np.isfinite(target_values).all():
+        raise ValueError("Training features and labels must all be finite")
 
-rosters = schedule_formatting.add_home_and_away(SCHEDULES)
-cleaned_rosters = data_cleaning.clean_for_training(rosters)
+    features = torch.from_numpy(feature_values).to(device)
+    targets = torch.from_numpy(target_values).to(device)
+    feature_mean = features.mean(dim=0)
+    feature_scale = features.std(dim=0, unbiased=False).clamp_min(1e-6)
+    target_mean = targets.mean(dim=0)
+    target_scale = targets.std(dim=0, unbiased=False).clamp_min(1e-6)
 
+    torch.manual_seed(seed)
+    predictor = NFLGamePredictor(feature_mean, feature_scale,
+                                 target_mean, target_scale).to(device)
+    optimizer = torch.optim.Adam(predictor.parameters(), lr=learning_rate)
+    loss_function = nn.MSELoss()
+    normalized_targets = (targets - target_mean) / target_scale
+    generator = torch.Generator(device=device).manual_seed(seed)
+    losses = []
+
+    predictor.train()
+    for _ in range(epochs):
+        indices = torch.randperm(len(features), generator=generator,
+                                 device=device)
+        epoch_loss = 0.0
+        for start in range(0, len(features), batch_size):
+            batch_indices = indices[start:start + batch_size]
+            batch_features = features[batch_indices]
+            batch_targets = normalized_targets[batch_indices]
+
+            optimizer.zero_grad()
+            predictions = predictor(batch_features)
+            normalized_predictions = (
+                predictions - target_mean) / target_scale
+            loss = loss_function(normalized_predictions, batch_targets)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item() * len(batch_indices)
+
+        losses.append(epoch_loss / len(features))
+
+    predictor.eval()
+    return predictor, losses
