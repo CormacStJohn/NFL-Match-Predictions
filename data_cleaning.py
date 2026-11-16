@@ -51,6 +51,8 @@ def clean_for_training(data: pl.DataFrame) -> pl.DataFrame:
     DataFrame data containing match schedules to make the
     columns usable for training a machine learning model
     """
-    df = data.drop_nulls().with_columns(pl.col("location").replace({"Home": 1, "Away": 0}).cast(int))
+    df = data.drop_nulls().with_columns(pl.col("location").replace({"Home": 1,
+                                                                    "Away": -1,
+                                                                    "Neutral": 0}).cast(int))
 
     return df
