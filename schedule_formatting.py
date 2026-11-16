@@ -142,14 +142,22 @@ def add_roster(game: pl.dataframe, home: bool) -> pl.dataframe:
 
     return output
 
+
 def add_home_and_away(data: pl.DataFrame) -> pl.DataFrame:
     """
-    takes a DataFrame data of NFL match schedules
+    Takes a DataFrame data of NFL match schedules
     and returns a copy of it with columns of the
     home and away team's fantasy ranking data as
-    provided by add_roster
+    provided by add_roster. To save time, the function
+    saves the output on its first call, and reuses
+    that output on future calls
     """
-    h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
-    a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
+    try:
+        return pl.read_csv("schedules.csv")
+    except:
+        h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
+        a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
 
-    return data.with_columns(h_cols, a_cols).unnest(["h", "a"])
+        df = data.with_columns(h_cols, a_cols).unnest(["h", "a"])
+        df.write_csv("schedules.csv")
+        return df
