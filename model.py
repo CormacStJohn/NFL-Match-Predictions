@@ -1,163 +1,127 @@
 """
 Cormac St John
 CSE 163 A26
-Implements a function that
-adds ranking data for the home
-or away team of a given NFL match.
-This function is used in the creation
-of the training and testing data.
+Creates a machine learning model
+that predicts betting metrics for
+NFL matches using NFL match data
+and fantasy rankings
 """
 
 
-import nflreadpy as nfl
 import polars as pl
-import data_cleaning
+import numpy as np
+import torch
+from torch import nn
 
 
-# A list of abbreviations for positions on a football team.
-POSITIONS: list[str] = ["WR", "DB", "DL", "TE", "K", "LB", "RB", "QB"]
+TRAINING_SEASONS = [x for x in range(2020, 2027)]
+TRAINING_FEATURES = ['week', 'location', 'away_rest', 'home_rest',
+                     'home_WR_0', 'home_WR_1', 'home_DB_0', 'home_DB_1',
+                     'home_DB_2', 'home_DB_3', 'home_DL_0', 'home_DL_1',
+                     'home_DL_2', 'home_DL_3', 'home_TE_0', 'home_K_0',
+                     'home_LB_0', 'home_LB_1', 'home_LB_2', 'home_RB_0',
+                     'home_RB_1', 'home_QB_0', 'away_WR_0', 'away_WR_1',
+                     'away_DB_0', 'away_DB_1', 'away_DB_2', 'away_DB_3',
+                     'away_DL_0', 'away_DL_1', 'away_DL_2', 'away_DL_3',
+                     'away_TE_0', 'away_K_0', 'away_LB_0', 'away_LB_1',
+                     'away_LB_2', 'away_RB_0', 'away_RB_1', 'away_QB_0']
+TRAINING_LABELS = ['away_score', 'home_score', 'result', 'total']
 
 
-# A dictionary consisting of abbreviations for positions, as 
-# well as the number of players on the field that have that
-# position at a given time.
-POSITION_AMOUNTS: dict[str, int] = {"WR": 2, "OL": 5, "DB": 4, "DL": 4,
-                                    "TE": 1, "K": 1, "LB": 3, "LS": 1,
-                                    "RB": 2, "P": 1, "QB": 1}
+class NFLGamePredictor(nn.Module):
+    """Predict game scores and derived betting metrics from team features."""
+
+    def __init__(self, feature_mean: torch.Tensor, feature_scale: torch.Tensor,
+                 target_mean: torch.Tensor, target_scale: torch.Tensor) -> None:
+        super().__init__()
+        self.register_buffer("feature_mean", feature_mean)
+        self.register_buffer("feature_scale", feature_scale)
+        self.register_buffer("target_mean", target_mean)
+        self.register_buffer("target_scale", target_scale)
+        self.network = nn.Sequential(
+            nn.Linear(len(TRAINING_FEATURES), 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, len(TRAINING_LABELS)),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        normalized_features = (features - self.feature_mean) / self.feature_scale
+        normalized_predictions = self.network(normalized_features)
+        return normalized_predictions * self.target_scale + self.target_mean
 
 
-# A list of the columns that are relevant for the add_roster
-# function
-R_COLS = ["home_team", "away_team",
-                   "year", "month", "day", "week", "season"]
+def train_model(data: pl.DataFrame, epochs: int = 100, batch_size: int = 32,
+                learning_rate: float = 0.001,
+                seed: int = 0,
+                device: str | torch.device = "cuda"
+                ) -> tuple[NFLGamePredictor, list[float]]:
+    """Train on the requested device and return the model and epoch losses."""
+    if epochs <= 0:
+        raise ValueError("epochs must be positive")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if learning_rate <= 0:
+        raise ValueError("learning_rate must be positive")
 
+    device = torch.device(device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA training was requested, but CUDA is unavailable. "
+            "Install a CUDA-enabled PyTorch build and check your GPU drivers.")
 
-# Schemas for the columns that will be added to the DataFrame of
-# a given NFL match.
-HOME_R_SCHEMA = pl.Struct({
-    f"home_{position}_{i}": pl.Float64
-    for position in POSITIONS
-    for i in range(POSITION_AMOUNTS[position])
-})
-AWAY_R_SCHEMA = pl.Struct({
-    f"away_{position}_{i}": pl.Float64
-    for position in POSITIONS
-    for i in range(POSITION_AMOUNTS[position])
-})
+    required_columns = TRAINING_FEATURES + TRAINING_LABELS
+    missing_columns = [column for column in required_columns
+                       if column not in data.columns]
+    if missing_columns:
+        raise ValueError(f"Training data is missing columns: {missing_columns}")
+    if data.is_empty():
+        raise ValueError("Training data must contain at least one row")
 
+    feature_values = data.select(TRAINING_FEATURES).to_numpy().astype(
+        np.float32, copy=False)
+    target_values = data.select(TRAINING_LABELS).to_numpy().astype(
+        np.float32, copy=False)
+    if not np.isfinite(feature_values).all() or not np.isfinite(target_values).all():
+        raise ValueError("Training features and labels must all be finite")
 
-def add_roster(game: pl.dataframe, home: bool) -> pl.dataframe:
-    """
-    Takes a game given by a row in the schedules dataframe
-    and a boolean home (true for home team, false for away
-    team), and adds columns for each position (accounting
-    for the number of each position on a team, so there will
-    be 2 wide receiver columns, 5 offensive line columns, etc),
-    with the value in that column corresponding to the fantasy
-    ranking of the highest ranked player on the team with that
-    position (for positions with multiple players, the highest
-    ranked player goes in the leftmost column of that position,
-    the second highest ranked in the second leftmost column, etc).
-    """
+    features = torch.from_numpy(feature_values).to(device)
+    targets = torch.from_numpy(target_values).to(device)
+    feature_mean = features.mean(dim=0)
+    feature_scale = features.std(dim=0, unbiased=False).clamp_min(1e-6)
+    target_mean = targets.mean(dim=0)
+    target_scale = targets.std(dim=0, unbiased=False).clamp_min(1e-6)
 
-    # Getting relevant NFL data
-    weekly_rosters = nfl.load_rosters_weekly(seasons=True)
-    rankings = data_cleaning.make_rankings()
-    
-    output = {}
-    is_home = "home" if home else "away"
-    if home:
-        team = game["home_team"]
-    else:
-        team = game["away_team"]
+    torch.manual_seed(seed)
+    predictor = NFLGamePredictor(feature_mean, feature_scale,
+                                 target_mean, target_scale).to(device)
+    optimizer = torch.optim.Adam(predictor.parameters(), lr=learning_rate)
+    loss_function = nn.MSELoss()
+    normalized_targets = (targets - target_mean) / target_scale
+    generator = torch.Generator(device=device).manual_seed(seed)
+    losses = []
 
-    # Storing game date info
-    year = game["year"]
-    month = game["month"]
-    day = game["day"]
+    predictor.train()
+    for _ in range(epochs):
+        indices = torch.randperm(len(features), generator=generator,
+                                 device=device)
+        epoch_loss = 0.0
+        for start in range(0, len(features), batch_size):
+            batch_indices = indices[start:start + batch_size]
+            batch_features = features[batch_indices]
+            batch_targets = normalized_targets[batch_indices]
 
-    # Getting the active roster of the chosen team for the
-    # given game
-    act_roster = weekly_rosters.filter((weekly_rosters["team"] == team) &
-                                       (weekly_rosters["status"] == "ACT") &
-                                       (weekly_rosters["week"] == game["week"]) &
-                                       (weekly_rosters["season"] == game["season"]))
+            optimizer.zero_grad()
+            predictions = predictor(batch_features)
+            normalized_predictions = (
+                predictions - target_mean) / target_scale
+            loss = loss_function(normalized_predictions, batch_targets)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item() * len(batch_indices)
 
-    # Getting the rankings of the active roster near the
-    # date the game took place
-    rankings = rankings
-    act_names = act_roster["full_name"].to_list()
-    year_mask = (rankings["year"] == year)
-    month_mask = (rankings["month"] == month)
-    date_mask = rankings["day"] <= day
-    name_mask = rankings["player"].is_in(act_names)
-    act_rankings = rankings.filter(year_mask & month_mask & date_mask & name_mask)
+        losses.append(epoch_loss / len(features))
 
-    # filtering the scrape dates to only data
-    # from the scrape that took place closest
-    # to the time of the game. This only works
-    # if there is data in the same month as the
-    # game from a date less than or equal to 
-    # the game's date, so we check for that
-    # first
-    if len(act_rankings.rows()) != 0:
-        date_mask2 = act_rankings["day"] == act_rankings["day"].unique().max()
-        act_rankings = act_rankings.filter(date_mask2)
-
-    # If there is no scraped data from a date 
-    # in the same month of the game before 
-    # the game took place, we grab the most
-    # recent previous scrape
-    else:
-        alternate_month_mask = rankings["month"] <= month
-        alternate_year_mask = rankings["year"] <= year
-        month_year_filtered = rankings.filter(alternate_year_mask & alternate_month_mask)
-
-        max_year_mask = month_year_filtered["year"] == month_year_filtered["year"].max()
-        month_year_filtered = month_year_filtered.filter(max_year_mask)
-        max_month_mask = month_year_filtered["month"] == month_year_filtered["month"].max()
-        month_year_filtered = month_year_filtered.filter(max_month_mask)
-        max_date_mask = month_year_filtered["day"] == month_year_filtered["day"].max()
-        act_rankings = month_year_filtered.filter(max_date_mask)
-
-    # adding the positions of the active roster as a
-    # column of the rankings dataframe
-    act_rankings = act_rankings.join(act_roster["full_name", "position"],
-                                     how="left",
-                                     left_on="player",
-                                     right_on="full_name")
-
-    # Sorting the active players by ecr ranking
-    act_rankings = act_rankings.sort("ecr")
-
-    for position in POSITIONS:
-        for i in range(POSITION_AMOUNTS[position]):
-            position_mask = act_rankings["position"] == position
-            position_value = act_rankings.filter(position_mask)["ecr"].slice(i, 1)
-            # If there does not exist a player with the specified position
-            # we set their ranking to null
-            if len(position_value) == 0:
-                position_value = pl.Series(values=[None])
-            output[f"{is_home}_{position}_{i}"] = position_value.item()
-
-    return output
-
-
-def add_home_and_away(data: pl.DataFrame) -> pl.DataFrame:
-    """
-    Takes a DataFrame data of NFL match schedules
-    and returns a copy of it with columns of the
-    home and away team's fantasy ranking data as
-    provided by add_roster. To save time, the function
-    saves the output on its first call, and reuses
-    that output on future calls
-    """
-    try:
-        return pl.read_csv("schedules.csv")
-    except:
-        h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
-        a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
-
-        df = data.with_columns(h_cols, a_cols).unnest(["h", "a"])
-        df.write_csv("schedules.csv")
-        return df
+    predictor.eval()
+    return predictor, losses
