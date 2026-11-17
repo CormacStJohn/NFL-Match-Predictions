@@ -15,6 +15,7 @@ import seaborn as sns
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 
 # A DataFrame of match schedules for the seasons of interest
@@ -25,22 +26,35 @@ TOTAL_COLUMNS = ["total_line", "under_odds", "over_odds", "total", "predicted_to
 SPREAD_COLUMNS = ["spread_line", "away_spread_odds", "home_spread_odds",
                   "result", "predicted_diff"]
 
-def create_predictions_df() -> pl.DataFrame:
+def create_predictions_df(training_split: float,
+                          num_epochs: int | None = None) -> pl.DataFrame:
     """
-    Trains a Neural network on the first 1300 rows
-    of schedule data that has been cleaned for training, then
-    tests the model on 90 NFL matches that it was not trained
-    on and records the model's predictions for the total score
-    and the score difference in columns labeled "predicted_total"
-    and "predicted_diff". Returns a DataFrame of the 90 matches
-    with these two additional columns.
+    Takes a float training_split that represetnts the percentage
+    of NFL matches that will be used for training and an int or None
+    num_epochs that represents the number of epochs on which a model
+    will train, and trains an NflGamePredictor on NFL schedule data that has
+    been cleaned for training, then tests the model on the remaining
+    NFL matches that it did not receive as training data and records
+    the model's predictions for the total score and the score difference
+    in columns labeled "predicted_total" and "predicted_diff".
+    Returns a DataFrame of the untrained data with these
+    two additional columns. If num_epochs is None, trains the model with
+    100 epochs.
     """
     rosters = schedule_formatting.add_home_and_away(SCHEDULES)
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
-    train_data = cleaned_rosters.slice(0, 1300)
-    test_data = cleaned_rosters.slice(1300, 90)
+    train_index = math.floor(len(cleaned_rosters.rows()) * training_split)
+    train_data = cleaned_rosters.slice(0, train_index)
+    test_data = cleaned_rosters.slice(train_index)
+    device = model.DEVICE
 
-    trained_model, _ = model.train_model(train_data, device=model.DEVICE)
+    if num_epochs is None:
+        trained_model, _ = model.train_model(train_data,
+                                             device=device)
+    else:
+        trained_model, _ = model.train_model(train_data,
+                                             device=device,
+                                             epochs= num_epochs)
 
     test = torch.from_numpy(test_data.select(model.TRAINING_FEATURES)
                             .to_numpy().astype(np.float32, copy=False))
@@ -51,6 +65,7 @@ def create_predictions_df() -> pl.DataFrame:
         pl.Series(name="predicted_diff", values=values[:, 2]),
         pl.Series(name="predicted_total", values=values[:, 3]),
     )
+
 
 def get_total_profitability(data: pl.DataFrame) -> pl.DataFrame:
     """
@@ -94,7 +109,7 @@ def get_total_profitability(data: pl.DataFrame) -> pl.DataFrame:
 
         wealth.append(money)
 
-    return data.with_columns(pl.Series(name="wealth", values=wealth))
+    return data.with_columns(pl.Series(name="wealth", values=wealth, strict=False))
 
 
 def get_spread_profitability(data: pl.DataFrame) -> pl.DataFrame:
@@ -158,7 +173,7 @@ def plot_wealth(data: pl.DataFrame, ax: plt.axis):
 
 
 def main():
-    predictions = create_predictions_df()
+    predictions = create_predictions_df(training_split=0.9, num_epochs=30)
 
     spread_df = get_spread_profitability(predictions)
     total_df = get_total_profitability(predictions)

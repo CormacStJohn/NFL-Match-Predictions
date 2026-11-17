@@ -17,29 +17,38 @@ import seaborn as sns
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 
 # A DataFrame of match schedules for the seasons of interest
 SCHEDULES = data_cleaning.make_schedules(model.TRAINING_SEASONS)
 
 
-def create_importance_df() -> pl.DataFrame:
+def create_importance_df(training_split: float,
+                         num_epochs: int | None = None) -> pl.DataFrame:
     """
-    Trains a Neural network on the first 1300 rows
-    of schedule data that has been cleaned for training,
-    and tests which of the models features are most important
-    in the model's predictions. Importance of a feature is
-    measured by how much the mean squared error of a
-    label's prediction changes as the feature's values
-    are randomly modified
+    Takes a float training_split that represetnts the percentage
+    of NFL matches that will be used for training and an int or None
+    num_epochs that represents the number of epochs on which a model
+    will train, and trains an NflGamePredictor accordingly on NFL
+    schedule data that has been cleaned for training, then tests which
+    of the models features are most important in the model's predictions.
+    Importance of a feature is measured by how much the mean squared error
+    of a label's prediction changes as the feature's values are randomly modified.
     """
     rosters = schedule_formatting.add_home_and_away(SCHEDULES)
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
-    train_data = cleaned_rosters.slice(0, 1300)
-    test_data = cleaned_rosters.slice(1300, 90)
+    train_index = math.floor(len(cleaned_rosters.rows()) * training_split)
+    train_data = cleaned_rosters.slice(0, train_index)
+    test_data = cleaned_rosters.slice(train_index)
     device = model.DEVICE
 
-    trained_model, _ = model.train_model(train_data, device=device)
+    if num_epochs is None:
+        trained_model, _ = model.train_model(train_data, device=device)
+    else:
+        trained_model, _ = model.train_model(train_data, 
+                                             device=device,
+                                             epochs=num_epochs)
 
     x = torch.as_tensor(
         test_data.select(model.TRAINING_FEATURES).to_numpy().astype(np.float32),
@@ -96,7 +105,7 @@ def main():
     are placed on a 2x2 figure that is saved to this
     file's directory as importance.png.
     """
-    df = create_importance_df()
+    df = create_importance_df(training_split= 0.9, num_epochs=30)
 
     _, ax = plt.subplots(2, 2, figsize=(30, 20), linewidth=0.5)
     for i, label in enumerate(model.TRAINING_LABELS):
