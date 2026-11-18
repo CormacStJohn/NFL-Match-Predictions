@@ -23,15 +23,16 @@ TOTAL_COLUMNS = ["total_line", "under_odds", "over_odds", "total", "predicted_to
 SPREAD_COLUMNS = ["spread_line", "away_spread_odds", "home_spread_odds",
                   "result", "predicted_diff"]
 
+
 def create_predictions_df(training_split: float,
                           num_epochs: int | None = None) -> pl.DataFrame:
     """
-    Takes a float training_split that represetnts the percentage
+    Takes a float training_split that represents the percentage
     of NFL matches that will be used for training and an int or None
     num_epochs that represents the number of epochs on which a model
-    will train, and trains an NflGamePredictor on NFL schedule data that has
+    will train, and trains an NFLGamePredictor on NFL schedule data that has
     been cleaned for training, then tests the model on the remaining
-    NFL matches that it did not receive as training data and records
+    NFL matches that it did not receive as training data, and records
     the model's predictions for the total score and the score difference
     in columns labeled "predicted_total" and "predicted_diff".
     Returns a DataFrame of the untrained data with these
@@ -51,7 +52,7 @@ def create_predictions_df(training_split: float,
     else:
         trained_model, _ = model.train_model(train_data,
                                              device=device,
-                                             epochs= num_epochs)
+                                             epochs=num_epochs)
 
     test = torch.from_numpy(test_data.select(model.TRAINING_FEATURES)
                             .to_numpy().astype(np.float32, copy=False))
@@ -60,7 +61,7 @@ def create_predictions_df(training_split: float,
 
     return test_data.with_columns(
         pl.Series(name="predicted_diff", values=values[:, 2]),
-        pl.Series(name="predicted_total", values=values[:, 3]),
+        pl.Series(name="predicted_total", values=values[:, 3])
     )
 
 
@@ -170,6 +171,13 @@ def plot_wealth(data: pl.DataFrame, ax: plt.axis):
 
 
 def main():
+    """
+    Creates visualizations of a wealth simulation of a model
+    with training split equal to 0.8 and num epochs equal to
+    40 by using the create predictions_df, get_spread_profitability,
+    get_total_profitability, and plot wealth functions. This
+    visualization is saved as wealth_plots.png.
+    """
     predictions = create_predictions_df(training_split=0.8, num_epochs=40)
 
     spread_df = get_spread_profitability(predictions)

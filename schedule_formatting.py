@@ -19,7 +19,7 @@ import model
 POSITIONS: list[str] = ["WR", "DB", "DL", "TE", "K", "LB", "RB", "QB"]
 
 
-# A dictionary consisting of abbreviations for positions, as 
+# A dictionary consisting of abbreviations for positions, as
 # well as the number of players on the field that have that
 # position at a given time.
 POSITION_AMOUNTS: dict[str, int] = {"WR": 2, "OL": 5, "DB": 4, "DL": 4,
@@ -30,41 +30,28 @@ POSITION_AMOUNTS: dict[str, int] = {"WR": 2, "OL": 5, "DB": 4, "DL": 4,
 # A list of the columns that are relevant for the add_roster
 # function
 R_COLS = ["home_team", "away_team",
-                   "year", "month", "day", "week", "season"]
+          "year", "month", "day", "week", "season"]
 
 
-# Schemas for the columns that will be added to the DataFrame of
-# a given NFL match.
-HOME_R_SCHEMA = pl.Struct({
-    f"home_{position}_{i}": pl.Float64
-    for position in POSITIONS
-    for i in range(POSITION_AMOUNTS[position])
-})
-AWAY_R_SCHEMA = pl.Struct({
-    f"away_{position}_{i}": pl.Float64
-    for position in POSITIONS
-    for i in range(POSITION_AMOUNTS[position])
-})
-
-
-def add_roster(game: pl.dataframe, home: bool) -> pl.dataframe:
+def add_roster(game: pl.DataFrame, home: bool) -> dict[int]:
     """
-    Takes a game given by a row in the schedules DataFrame
-    and a boolean home (true for home team, false for away
-    team), and adds columns for each position (accounting
-    for the number of each position on a team, so there will
-    be 2 wide receiver columns, 5 offensive line columns, etc),
-    with the value in that column corresponding to the fantasy
-    ranking of the highest ranked player on the team with that
-    position (for positions with multiple players, the highest
-    ranked player goes in the leftmost column of that position,
-    the second highest ranked in the second leftmost column, etc).
+    Takes a DataFrame game given by a row in the schedules
+    DataFrame and a boolean home (true for home team, false
+    for away team), returns a dictionary of integers with a
+    key for each position (accounting for the number of each
+    position on a team, so there will be 2 wide receiver keys,
+    5 offensive line keys, etc), with the value of that key
+    corresponding to the fantasy ranking of the highest ranked
+    player on the team with that position (for positions with
+    multiple players, the highest ranked player goes in the
+    leftmost lowest-numbered key for that position, the second
+    highest ranked in the second-lowest-numbered key, etc).
     """
 
     # Getting relevant NFL data
     weekly_rosters = nfl.load_rosters_weekly(seasons=True)
     rankings = data_cleaning.make_rankings()
-    
+
     output = {}
     is_home = "home" if home else "away"
     if home:
@@ -98,15 +85,15 @@ def add_roster(game: pl.dataframe, home: bool) -> pl.dataframe:
     # from the scrape that took place closest
     # to the time of the game. This only works
     # if there is data in the same month as the
-    # game from a date less than or equal to 
+    # game from a date less than or equal to
     # the game's date, so we check for that
     # first
     if len(act_rankings.rows()) != 0:
         date_mask2 = act_rankings["day"] == act_rankings["day"].unique().max()
         act_rankings = act_rankings.filter(date_mask2)
 
-    # If there is no scraped data from a date 
-    # in the same month of the game before 
+    # If there is no scraped data from a date
+    # in the same month of the game before
     # the game took place, we grab the most
     # recent previous scrape
     else:
@@ -166,11 +153,11 @@ def get_all_schedules() -> pl.DataFrame:
     as produced by add_roster. This takes a large amount
     of time, so the output is saved as schedules.csv the
     first time this function is called. On future calls,
-    this function simply returns a DataFrame of schedules.csv
+    this function simply returns a DataFrame of schedules.csv.
     """
     try:
         return pl.read_csv("schedules.csv")
-    except:
+    except FileNotFoundError:
         data = data_cleaning.make_schedules(model.TRAINING_SEASONS)
         h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
         a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
@@ -178,4 +165,3 @@ def get_all_schedules() -> pl.DataFrame:
         df = data.with_columns(h_cols, a_cols).unnest(["h", "a"])
         df.write_csv("schedules.csv")
         return df
-

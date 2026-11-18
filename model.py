@@ -13,9 +13,10 @@ import numpy as np
 import torch
 from torch import nn
 
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TRAINING_SEASONS = [x for x in range(2020, 2027)]
-TRAINING_FEATURES = ['week', 'location_Home', 'location_Neutral', 'away_rest', 
+TRAINING_FEATURES = ['week', 'location_Home', 'location_Neutral', 'away_rest',
                      'home_rest', 'home_WR_0', 'home_WR_1', 'home_DB_0',
                      'home_DB_1', 'home_DB_2', 'home_DB_3', 'home_DL_0',
                      'home_DL_1', 'home_DL_2', 'home_DL_3', 'home_TE_0',
@@ -24,22 +25,36 @@ TRAINING_FEATURES = ['week', 'location_Home', 'location_Neutral', 'away_rest',
                      'away_WR_1', 'away_DB_0', 'away_DB_1', 'away_DB_2',
                      'away_DB_3', 'away_DL_0', 'away_DL_1', 'away_DL_2',
                      'away_DL_3', 'away_TE_0', 'away_K_0', 'away_LB_0',
-                     'away_LB_1', 'away_LB_2', 'away_RB_0', 'away_RB_1', 
+                     'away_LB_1', 'away_LB_2', 'away_RB_0', 'away_RB_1',
                      'away_QB_0']
 TRAINING_LABELS = ['away_score', 'home_score', 'result', 'total']
 
 
 class NFLGamePredictor(nn.Module):
-    """Predict game scores and derived betting metrics from team features."""
+    """
+    An object that stores a neural network used for
+    predicting the metrics in TRAINING_LABELS from the
+    features specified in TRAINING_FEATURES.
+    """
 
     def __init__(self, feature_mean: torch.Tensor, feature_scale: torch.Tensor,
                  target_mean: torch.Tensor, target_scale: torch.Tensor) -> None:
+        """
+        Initialize the model with the statistics used to normalize inputs
+        and rescale predictions.
+
+        Args:
+            feature_mean: Per-feature means used to normalize input features.
+            feature_scale: Per-feature scales used to normalize input features.
+            target_mean: Per-target means added back to model predictions.
+            target_scale: Per-target scales used to rescale model predictions.
+        """
         super().__init__()
         self.register_buffer("feature_mean", feature_mean)
         self.register_buffer("feature_scale", feature_scale)
         self.register_buffer("target_mean", target_mean)
         self.register_buffer("target_scale", target_scale)
-        self.network = nn.Sequential(
+        self._network: nn.Sequential = nn.Sequential(
             nn.Linear(len(TRAINING_FEATURES), 64),
             nn.ReLU(),
             nn.Linear(64, 32),
@@ -48,8 +63,13 @@ class NFLGamePredictor(nn.Module):
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """
+        Executes a forward pass of the neural network with the
+        Tensor features as input, and returns the neural network's
+        predictions as a Tensor.
+        """
         normalized_features = (features - self.feature_mean) / self.feature_scale
-        normalized_predictions = self.network(normalized_features)
+        normalized_predictions = self._network(normalized_features)
         return normalized_predictions * self.target_scale + self.target_mean
 
 
@@ -58,7 +78,12 @@ def train_model(data: pl.DataFrame, epochs: int = 100, batch_size: int = 32,
                 seed: int = 0,
                 device: str | torch.device = "cuda"
                 ) -> tuple[NFLGamePredictor, list[float]]:
-    """Train on the requested device and return the model and epoch losses."""
+    """
+    Trains an NFLGamePredictor on a DataFrame data with number of epochs equal
+    to epochs, training data batch size equal to batch_size, learning rate equal
+    to learning_rate, randomness seed equal to seed, and device equal to device,
+    and returns the trained model and epoch losses.
+    """
     if epochs <= 0:
         raise ValueError("epochs must be positive")
     if batch_size <= 0:

@@ -23,14 +23,15 @@ import math
 def create_importance_df(training_split: float,
                          num_epochs: int | None = None) -> pl.DataFrame:
     """
-    Takes a float training_split that represetnts the percentage
+    Takes a float training_split that represents the percentage
     of NFL matches that will be used for training and an int or None
     num_epochs that represents the number of epochs on which a model
-    will train, and trains an NflGamePredictor accordingly on NFL
+    will train, and trains an NFLGamePredictor accordingly on NFL
     schedule data that has been cleaned for training, then tests which
     of the models features are most important in the model's predictions.
     Importance of a feature is measured by how much the mean squared error
     of a label's prediction changes as the feature's values are randomly modified.
+    If num_epochs is None, the model is trained using 100 epochs.
     """
     rosters = schedule_formatting.get_all_schedules()
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
@@ -42,7 +43,7 @@ def create_importance_df(training_split: float,
     if num_epochs is None:
         trained_model, _ = model.train_model(train_data, device=device)
     else:
-        trained_model, _ = model.train_model(train_data, 
+        trained_model, _ = model.train_model(train_data,
                                              device=device,
                                              epochs=num_epochs)
 
@@ -81,10 +82,10 @@ def create_importance_df(training_split: float,
 def create_importance_plot(data: pl.DataFrame, label: str, ax: plt.axes) -> None:
     """
     Takes a DataFrame of importance, a string label, and a plt.axes ax and
-    creates a seaborn barplot if the importance of each feature in predicting
+    creates a seaborn barplot of the importance of each feature in predicting
     label on the axis ax. The plot's x axis is labeled Features, its y axis is
     labeled Importance, and the plot is titled Importance of Features in
-    Predicting LABEL, where LABEL is replaced by its respective input parameter
+    Predicting LABEL, where LABEL is replaced by its respective input parameter.
     """
     sns.barplot(x="feature", y=label, data=data.to_pandas(), ax=ax)
     ax.set_xlabel("Features")
@@ -101,13 +102,13 @@ def main():
     are placed on a 2x2 figure that is saved to this
     file's directory as importance.png.
     """
-    df = create_importance_df(training_split= 0.9, num_epochs=30)
+    df = create_importance_df(training_split=0.9, num_epochs=30)
 
     _, ax = plt.subplots(2, 2, figsize=(30, 25))
     for i, label in enumerate(model.TRAINING_LABELS):
         create_importance_plot(df,  label, ax[i // 2][i % 2])
     plt.savefig("importance.png", bbox_inches="tight")
-    
+
 
 if __name__ == "__main__":
     main()
