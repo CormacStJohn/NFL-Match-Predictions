@@ -15,16 +15,17 @@ from torch import nn
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TRAINING_SEASONS = [x for x in range(2020, 2027)]
-TRAINING_FEATURES = ['week', 'location', 'away_rest', 'home_rest',
-                     'home_WR_0', 'home_WR_1', 'home_DB_0', 'home_DB_1',
-                     'home_DB_2', 'home_DB_3', 'home_DL_0', 'home_DL_1',
-                     'home_DL_2', 'home_DL_3', 'home_TE_0', 'home_K_0',
-                     'home_LB_0', 'home_LB_1', 'home_LB_2', 'home_RB_0',
-                     'home_RB_1', 'home_QB_0', 'away_WR_0', 'away_WR_1',
-                     'away_DB_0', 'away_DB_1', 'away_DB_2', 'away_DB_3',
-                     'away_DL_0', 'away_DL_1', 'away_DL_2', 'away_DL_3',
-                     'away_TE_0', 'away_K_0', 'away_LB_0', 'away_LB_1',
-                     'away_LB_2', 'away_RB_0', 'away_RB_1', 'away_QB_0']
+TRAINING_FEATURES = ['week', 'location_Home', 'location_Neutral', 'away_rest', 
+                     'home_rest', 'home_WR_0', 'home_WR_1', 'home_DB_0',
+                     'home_DB_1', 'home_DB_2', 'home_DB_3', 'home_DL_0',
+                     'home_DL_1', 'home_DL_2', 'home_DL_3', 'home_TE_0',
+                     'home_K_0', 'home_LB_0', 'home_LB_1', 'home_LB_2',
+                     'home_RB_0', 'home_RB_1', 'home_QB_0', 'away_WR_0',
+                     'away_WR_1', 'away_DB_0', 'away_DB_1', 'away_DB_2',
+                     'away_DB_3', 'away_DL_0', 'away_DL_1', 'away_DL_2',
+                     'away_DL_3', 'away_TE_0', 'away_K_0', 'away_LB_0',
+                     'away_LB_1', 'away_LB_2', 'away_RB_0', 'away_RB_1', 
+                     'away_QB_0']
 TRAINING_LABELS = ['away_score', 'home_score', 'result', 'total']
 
 

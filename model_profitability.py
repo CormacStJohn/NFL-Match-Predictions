@@ -18,9 +18,6 @@ import numpy as np
 import math
 
 
-# A DataFrame of match schedules for the seasons of interest
-SCHEDULES = data_cleaning.make_schedules(model.TRAINING_SEASONS)
-
 # Columns of importance for calculating a model's profitability
 TOTAL_COLUMNS = ["total_line", "under_odds", "over_odds", "total", "predicted_total"]
 SPREAD_COLUMNS = ["spread_line", "away_spread_odds", "home_spread_odds",
@@ -41,7 +38,7 @@ def create_predictions_df(training_split: float,
     two additional columns. If num_epochs is None, trains the model with
     100 epochs.
     """
-    rosters = schedule_formatting.add_home_and_away(SCHEDULES)
+    rosters = schedule_formatting.get_all_schedules()
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
     train_index = math.floor(len(cleaned_rosters.rows()) * training_split)
     train_data = cleaned_rosters.slice(0, train_index)
@@ -173,7 +170,7 @@ def plot_wealth(data: pl.DataFrame, ax: plt.axis):
 
 
 def main():
-    predictions = create_predictions_df(training_split=0.9, num_epochs=30)
+    predictions = create_predictions_df(training_split=0.8, num_epochs=40)
 
     spread_df = get_spread_profitability(predictions)
     total_df = get_total_profitability(predictions)

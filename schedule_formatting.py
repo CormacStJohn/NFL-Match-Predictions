@@ -12,6 +12,7 @@ of the training and testing data.
 import nflreadpy as nfl
 import polars as pl
 import data_cleaning
+import model
 
 
 # A list of abbreviations for positions on a football team.
@@ -48,7 +49,7 @@ AWAY_R_SCHEMA = pl.Struct({
 
 def add_roster(game: pl.dataframe, home: bool) -> pl.dataframe:
     """
-    Takes a game given by a row in the schedules dataframe
+    Takes a game given by a row in the schedules DataFrame
     and a boolean home (true for home team, false for away
     team), and adds columns for each position (accounting
     for the number of each position on a team, so there will
@@ -148,16 +149,33 @@ def add_home_and_away(data: pl.DataFrame) -> pl.DataFrame:
     Takes a DataFrame data of NFL match schedules
     and returns a copy of it with columns of the
     home and away team's fantasy ranking data as
-    provided by add_roster. To save time, the function
-    saves the output on its first call, and reuses
-    that output on future calls
+    provided by add_roster.
+    """
+    h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
+    a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
+
+    df = data.with_columns(h_cols, a_cols).unnest(["h", "a"])
+    return df
+
+
+def get_all_schedules() -> pl.DataFrame:
+    """
+    Returns a dataframe of NFL match schedules from
+    seasons as specified in model.TRAINING_SEASONS,
+    with additional columns of fantasy ranking data
+    as produced by add_roster. This takes a large amount
+    of time, so the output is saved as schedules.csv the
+    first time this function is called. On future calls,
+    this function simply returns a DataFrame of schedules.csv
     """
     try:
         return pl.read_csv("schedules.csv")
     except:
+        data = data_cleaning.make_schedules(model.TRAINING_SEASONS)
         h_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, True)).alias("h")
         a_cols = data[R_COLS].to_struct().map_elements(lambda x: add_roster(x, False)).alias("a")
 
         df = data.with_columns(h_cols, a_cols).unnest(["h", "a"])
         df.write_csv("schedules.csv")
         return df
+

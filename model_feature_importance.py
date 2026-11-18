@@ -20,10 +20,6 @@ import numpy as np
 import math
 
 
-# A DataFrame of match schedules for the seasons of interest
-SCHEDULES = data_cleaning.make_schedules(model.TRAINING_SEASONS)
-
-
 def create_importance_df(training_split: float,
                          num_epochs: int | None = None) -> pl.DataFrame:
     """
@@ -36,7 +32,7 @@ def create_importance_df(training_split: float,
     Importance of a feature is measured by how much the mean squared error
     of a label's prediction changes as the feature's values are randomly modified.
     """
-    rosters = schedule_formatting.add_home_and_away(SCHEDULES)
+    rosters = schedule_formatting.get_all_schedules()
     cleaned_rosters = data_cleaning.clean_for_training(rosters)
     train_index = math.floor(len(cleaned_rosters.rows()) * training_split)
     train_data = cleaned_rosters.slice(0, train_index)
