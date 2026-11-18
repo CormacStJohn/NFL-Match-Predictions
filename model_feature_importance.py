@@ -103,7 +103,7 @@ def main():
     """
     df = create_importance_df(training_split= 0.9, num_epochs=30)
 
-    _, ax = plt.subplots(2, 2, figsize=(30, 20), linewidth=0.5)
+    _, ax = plt.subplots(2, 2, figsize=(30, 25))
     for i, label in enumerate(model.TRAINING_LABELS):
         create_importance_plot(df,  label, ax[i // 2][i % 2])
     plt.savefig("importance.png", bbox_inches="tight")
